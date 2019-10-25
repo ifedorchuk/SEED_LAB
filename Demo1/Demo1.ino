@@ -1,24 +1,24 @@
 /* Mobile Robot Arduino Controller
- * Uses 2 motors to move and turn a mobile robot with PID controllers
- * Both wheels have quadrature encoders that use the Encoders.h library
- * 
- * Separate controllers allow the robot to turn and move. Each controller has:
- * - PI controller for position (in inches or degrees)
- * - PD controller for velocity (in in/s or deg/s)
- * - Saturation constant and anti-windup for integrators
- *  
- * The Arduino can receive the following commands over Serial or I2C:
- * - 'Fxxx': Move Forward xxx inches
- * - 'Bxxx': Move Backward xxx inches
- * - 'Rxxx': Turn Right xxx inches
- * - 'Lxxx': Turn Left xxx inches
- * - 'D': Print controller variables to Serial
- * - 'E': Turn on (enable) the motors
- * - 'X': Turn off (disable) the motors
- * - 'Txxxyyy': Conduct an open loop test for 1 second, with xxx PWM counts on left wheel and yyy counts on right wheel
- * - 'OK': Clears any previous errors
+   Uses 2 motors to move and turn a mobile robot with PID controllers
+   Both wheels have quadrature encoders that use the Encoders.h library
+
+   Separate controllers allow the robot to turn and move. Each controller has:
+   - PI controller for position (in inches or degrees)
+   - PD controller for velocity (in in/s or deg/s)
+   - Saturation constant and anti-windup for integrators
+
+   The Arduino can receive the following commands over Serial or I2C:
+   - 'Fxxx': Move Forward xxx inches
+   - 'Bxxx': Move Backward xxx inches
+   - 'Rxxx': Turn Right xxx inches
+   - 'Lxxx': Turn Left xxx inches
+   - 'D': Print controller variables to Serial
+   - 'E': Turn on (enable) the motors
+   - 'X': Turn off (disable) the motors
+   - 'Txxxyyy': Conduct an open loop test for 1 second, with xxx PWM counts on left wheel and yyy counts on right wheel
+   - 'OK': Clears any previous errors
  * */
- //I2C Definitions
+//I2C Definitions
 #include <Wire.h>
 #define SLAVE_ADDRESS 0x04
 
@@ -36,8 +36,8 @@ const float TurnScaling = EncoderScaling * 5.81 / 10.71 * 360 / 2 / 3.1416; // E
 
 // saturation constants
 const float U_MAX = 125; // Max PWM voltage
-float V_MAX = 20;  // Max velocity for distance controller (in/s)
-const float W_MAX = 120; // Max velocity for turn controller (deg/s)
+float V_MAX = 40;  // Max velocity for distance controller (in/s)
+const float W_MAX = 155; // Max velocity for turn controller (deg/s)
 
 // Digital output
 const int ENABLE_PIN = 4;
@@ -79,7 +79,7 @@ int cdr_max = 100;
 // turn variables
 float turn_radius = 0;
 bool do_turn = false;
-float circle_distance=0;
+float circle_distance = 0;
 
 // Open Loop Test (T) variables
 bool run_test = false;
@@ -185,11 +185,14 @@ void setup() {
   //Set Encoder VCC Pin High
   digitalWrite(EncoderPinLVCC, HIGH);
 
+  //Set Task Pin Low
+  digitalWrite(TaskCompleted, LOW);
+
   // Setup Motors
   digitalWrite(ENABLE_PIN, HIGH);
   TCCR1B = (TCCR1B & 0b11111000) | 0x04; // change PWM frequency  http://playground.arduino.cc/Main/TimerPWMCheatsheet
- //Set task pin low so pi knows arduino is ready for instructions
-  
+  //Set task pin low so pi knows arduino is ready for instructions
+
   // Begin Serial (for PC/Bluetooth communication)
   Serial.begin(115200);
 
@@ -245,129 +248,128 @@ void setup() {
 
 
 void loop() {
- 
+
   //Serial.println(piControl);
   //if (stringComplete) {  // Parse input string into command
-//    if (SERIAL_DIAGNOSE) {
-//      Serial.print("got: ");
-//      Serial.println(inputString);
-//    }
-//
-//    // Acknowledge an error if it happened
-//    if (problem != 0 && inputString.substring(0, 2) == "OK") {
-//      Serial.println("Error acknowledged");
-//      problem = 0;
-//    }
-    problem = 0;
-    Serial.println(toUpperCase(inputString.charAt(0)));
-    switch (toUpperCase(inputString.charAt(0))) {
-      case 'F': // Go forward in inches
-        
-        Serial.println("we did pt 2");
-        tempstring = inputString.substring(1);
-        Serial.println(tempstring);
-        // Serial.println(tempstring);
-        reset_controllers();
-        ctrl_move_dist.ref = tempstring.toFloat();
-        complete_flag = false;
-        break;
-      case 'R': // Go backward in inches
-        
-        tempstring = inputString.substring(1);
-        // Serial.println(tempstring);
-        reset_controllers();
-        ctrl_move_dist.ref = -1 * tempstring.toFloat();
-        break;
-      case 'A': // Turn right, in degrees
-       
-        tempstring = inputString.substring(1);
-        // Serial.println(tempstring);
-        reset_controllers();
-        ctrl_turn_dist.ref = -1 * tempstring.toFloat();
-        break;
-      case 'B': // Turn left, in degrees
-       
-        tempstring = inputString.substring(1);
-        // Serial.println(tempstring);
-        reset_controllers();
-        ctrl_turn_dist.ref = tempstring.toFloat();
-        break;
-      case 'C': // Turn in a circle of a certain radius
-       
-        tempstring = inputString.substring(1);
-        reset_controllers();
-        turn_radius =  tempstring.toFloat();
-        ctrl_move_dist.ref = 2*3.141*turn_radius*12;
-        do_turn = true;
-        continuous_data_request = true;
-        cdr_max=750;
-        cdr_i=0;
-        break;
-      case 'D': // Print data to Serial output
-         
-        Serial.println("Case D: ");
-        data_request = true;
-        break;
-      case 'E': // Enable motors and (optionally) start continuous data request
-        Serial.println("we did it boyz");
-        enable_ctrl = true;
-        if (inputString.length() > 1) {
-          continuous_data_request = true;
-          tempstring = inputString.substring(1);
-          cdr_max = tempstring.toInt();
-          cdr_i = 0;
-        }
-        break;
-      case 'X': // Disable motors
-       
-        // reset_controllers();
-        enable_ctrl = false;
-        
-        break;
-      case 'T': // Initialize open loop test
-       
-        // do an open loop PWM pulse for 1 second, with continuous data request
-        // e.g. T-50025 -> pulse motor L at uL=-50 and motor R at uR=25 for 1 sec
-        reset_controllers();
-        if (inputString.charAt(1) != '0') {
-          uL = inputString.substring(1, 4).toInt();
-        } else {
-          uL = inputString.substring(2, 4).toInt();
-        }
-        if (inputString.charAt(4) != '0') {
-          uR = inputString.substring(4, 7).toInt();
-        } else {
-          uR = inputString.substring(5, 7).toInt();
-        }
-        if (abs(uL) > U_MAX | abs(uR) > U_MAX) {
-          problem = 98;
-          uL = 0;
-          uR = 0;
-        }
+  //    if (SERIAL_DIAGNOSE) {
+  //      Serial.print("got: ");
+  //      Serial.println(inputString);
+  //    }
+  //
+  //    // Acknowledge an error if it happened
+  //    if (problem != 0 && inputString.substring(0, 2) == "OK") {
+  //      Serial.println("Error acknowledged");
+  //      problem = 0;
+  //    }
+  problem = 0;
+  // Serial.println(toUpperCase(inputString.charAt(0)));
+  switch (toUpperCase(inputString.charAt(0))) {
+    case 'F': // Go forward in inches
+      Serial.println("Case F");
+      digitalWrite(TaskCompleted, HIGH);
+      tempstring = inputString.substring(1);
+      reset_controllers();
+      ctrl_move_dist.ref = tempstring.toFloat();
+      complete_flag = false;
+      break;
+    case 'R': // Go backward in inches
+      tempstring = inputString.substring(1);
+      // Serial.println(tempstring);
+      reset_controllers();
+      ctrl_move_dist.ref = -1 * tempstring.toFloat();
+      break;
+    case 'A': // Turn right, in degrees
+      Serial.println("Case A");
+      digitalWrite(TaskCompleted, HIGH);
+      complete_flag = false;
+      tempstring = inputString.substring(1);
+      Serial.println(tempstring);
+      reset_controllers();
+      ctrl_turn_dist.ref = -1 * tempstring.toFloat();
 
-        run_test = true;
-        i = 0;
-        cdr_i = 0;
+      Serial.println(ctrl_turn_dist.err);
+      break;
+    case 'B': // Turn left, in degrees
+      Serial.println("Case B");
+      digitalWrite(TaskCompleted, HIGH);
+      complete_flag = false;
+      tempstring = inputString.substring(1);
+      // Serial.println(tempstring);
+      reset_controllers();
+      ctrl_turn_dist.ref = tempstring.toFloat();
+      break;
+    case 'C': // Turn in a circle of a certain radius
+      Serial.println("Case C");
+      digitalWrite(TaskCompleted, HIGH);
+      complete_flag = false;
+      tempstring = inputString.substring(1);
+      reset_controllers();
+      turn_radius =  tempstring.toFloat();
+      ctrl_move_dist.ref = 2 * 3.141 * turn_radius * 12;
+      do_turn = true;
+      continuous_data_request = true;
+      cdr_max = 750;
+      cdr_i = 0;
+      break;
+    case 'D': // Print data to Serial output
+      Serial.println("Case D: ");
+      data_request = true;
+      break;
+    case 'E': // Enable motors and (optionally) start continuous data request
+      Serial.println("Motors Enabled");
+      enable_ctrl = true;
+      if (inputString.length() > 1) {
         continuous_data_request = true;
-        break;
-    }
-    // clear the string:
-    inputString = "";
-    stringComplete = false;
+        tempstring = inputString.substring(1);
+        cdr_max = tempstring.toInt();
+        cdr_i = 0;
+      }
+      break;
+    case 'X': // Disable motors
+
+      // reset_controllers();
+      enable_ctrl = false;
+
+      break;
+    case 'T': // Initialize open loop test
+
+      // do an open loop PWM pulse for 1 second, with continuous data request
+      // e.g. T-50025 -> pulse motor L at uL=-50 and motor R at uR=25 for 1 sec
+      reset_controllers();
+      if (inputString.charAt(1) != '0') {
+        uL = inputString.substring(1, 4).toInt();
+      } else {
+        uL = inputString.substring(2, 4).toInt();
+      }
+      if (inputString.charAt(4) != '0') {
+        uR = inputString.substring(4, 7).toInt();
+      } else {
+        uR = inputString.substring(5, 7).toInt();
+      }
+      if (abs(uL) > U_MAX | abs(uR) > U_MAX) {
+        problem = 98;
+        uL = 0;
+        uR = 0;
+      }
+
+      run_test = true;
+      i = 0;
+      cdr_i = 0;
+      continuous_data_request = true;
+      break;
+  }
+  // clear the string:
+  inputString = "";
+  stringComplete = false;
   //}   //  end if stringComplete
 
-  
+
 
   if (! digitalRead(NSF)) { // Motor driver error, check if motor driver has power
-    problem = 99; 
+    problem = 99;
     Serial.println("Motor bridge driver error");
   }
 
-
-//  if ( abs(ctrl_move_dist.err) < .01 & abs(ctrl_turn_dist.err) <.01) {
-//    complete_flag = true;
-//  }
-  
   if (problem == 0) {
 
     // Run open loop test (T)
@@ -403,20 +405,22 @@ void loop() {
     ctrl_move_dist.run_pid();
     ctrl_turn_dist.run_pid();
 
+    Serial.println(ctrl_turn_dist.err);
+
     if (do_turn) {
-      ctrl_turn_dist.ref = (180/3.14)*ctrl_move_dist.y_new/(12*turn_radius);
-       if (ctrl_move_dist.ref - ctrl_move_dist.y_new < .01 ){
-           do_turn=false; 
-       }
+      ctrl_turn_dist.ref = (180 / 3.14) * ctrl_move_dist.y_new / (12 * turn_radius);
+      if (ctrl_move_dist.ref - ctrl_move_dist.y_new < .01 ) {
+        do_turn = false;
+      }
     }
 
-    
+
     // Set velocity reference and update current velocity
     ctrl_move_vel.ref = ctrl_move_dist.u;      // velcity reference ref = distance output u
     ctrl_move_vel.y_new = ctrl_move_dist.vel;  // velcity position y_new = distance velocity vel
     ctrl_turn_vel.ref = ctrl_turn_dist.u;      // velcity reference ref = distance output u
     ctrl_turn_vel.y_new = ctrl_turn_dist.vel;  // velcity position y_new = distance velocity vel
-    
+
     // Run velocity controllers
     ctrl_move_vel.run_pid();
     ctrl_turn_vel.run_pid();
@@ -505,11 +509,22 @@ void loop() {
   current_time = millis();
   while ((current_time - last_time) < Ts) {
     current_time = millis();
-    
+
   }
   last_time = current_time;
 
-  //
+  if ( abs(ctrl_move_dist.err) < .1 & abs(ctrl_move_dist.vel) < .001 &  abs(ctrl_turn_dist.err) < .1 & abs(ctrl_turn_dist.vel) < .001) {
+    complete_flag = true;
+    Serial.println("Task Completed!");
+    digitalWrite(TaskCompleted, LOW);
+  }
+  else {
+    //digitalWrite(TaskCompleted, HIGH);
+    Serial.println("Moving...");
+
+  }
+
+
 }
 // end main loop
 
@@ -564,9 +579,9 @@ void addChar(char c) {
 
 // serial read command
 void serialEvent() {
-while(true)
- // while (Serial.available()) 
- {
+  while (true)
+    // while (Serial.available())
+  {
     //addChar((char)Serial.read());
     //receiveEvent(1);
     piControl = piControl;
@@ -579,11 +594,11 @@ void receiveEvent(int howMany) {
     //addChar(Wire.read());
 
     byte inputNumber = Wire.read();
-    if(inputNumber == 0xAF){ //Signature Byte
+    if (inputNumber == 0xAF) { //Signature Byte
       piControl = Wire.read();
       parameter = Wire.read();
       Serial.println(piControl);
-      Serial.println(parameter); 
+      Serial.println(parameter);
     }
   }
   //Create input string based on I2C Command from Pi
